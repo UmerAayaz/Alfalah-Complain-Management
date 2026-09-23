@@ -144,6 +144,9 @@ foreach (var field in fields)
 
             SubmittedByUserId =
                 actorUserId,
+            
+            Label = field.Label,
+            
 
             ValueJson =
                 valueJson,

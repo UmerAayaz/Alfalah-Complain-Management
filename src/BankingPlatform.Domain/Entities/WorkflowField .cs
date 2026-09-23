@@ -46,6 +46,8 @@ public sealed class WorkflowFieldResponse : EntityBase
     public AppUser SubmittedByUser { get; set; } = null!;
 
     public string? ValueJson { get; set; }
-
+    
+    public string? Label { get; set; }
+    
     public DateTime SubmittedAtUtc { get; set; } = DateTime.UtcNow;
 }
