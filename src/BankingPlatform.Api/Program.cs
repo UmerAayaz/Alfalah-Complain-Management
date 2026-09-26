@@ -5,6 +5,7 @@ using BankingPlatform.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using BankingPlatform.Infrastructure.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,8 +21,16 @@ builder.Services.AddCors(options =>
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
+builder.Services.AddSingleton<IFileStorage>(sp =>
+{
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    var root = Path.Combine(env.ContentRootPath, "uploads");
+    return new LocalFileStorage(root);
+});
 
 var app = builder.Build();
+
+app.UseStaticFiles();
 
 app.UseExceptionHandler(errorApp =>
 {

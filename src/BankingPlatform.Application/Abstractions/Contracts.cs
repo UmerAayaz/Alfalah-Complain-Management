@@ -29,20 +29,3 @@ public interface IWorkflowDefinitionService
     Task<WorkflowDefinitionDto?> GetAsync(Guid id, CancellationToken cancellationToken);
     Task<IReadOnlyList<WorkflowDefinitionDto>> ListAsync(Guid? categoryId, CancellationToken cancellationToken);
 }
-
-public interface IWorkflowTaskService
-{
-    Task<IReadOnlyList<WorkflowTaskDto>> GetMyBucketAsync(CancellationToken cancellationToken);
-    Task<IReadOnlyList<WorkflowTaskActionDto>> GetActionsAsync(Guid taskId, CancellationToken cancellationToken);
-    Task CompleteAsync(Guid taskId, CompleteWorkflowTaskRequest request, CancellationToken cancellationToken);
-    Task ReassignAsync(Guid taskId, ReassignWorkflowTaskRequest request, CancellationToken cancellationToken);
-    Task<WorkflowTaskFormDto> GetFormAsync(
-    Guid taskId,
-    CancellationToken cancellationToken);
-}
-
-public interface IWorkflowRuntime
-{
-    Task StartAsync(Complaint complaint, CancellationToken cancellationToken);
-    Task CompleteTaskAsync(Guid taskId, Guid actorUserId, CompleteWorkflowTaskRequest request, CancellationToken cancellationToken);
-}

@@ -441,3 +441,470 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* ============================================================
+   WORKFLOW TASK FIELDS
+   ============================================================ */
+
+.workflow-task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workflow-task-form .previous-step-fields,
+.workflow-task-form .current-step-fields {
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.workflow-task-form .designer-section-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.workflow-task-form small {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* ============================================================
+   FIELD LAYOUT (works for label.field too)
+   ============================================================ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.field > span {
+  font-weight: 500;
+  font-size: 13px;
+  color: #374151;
+}
+
+.field .input,
+.field .textarea {
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+}
+
+.field .input:focus,
+.field .textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.field .textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ============================================================
+   CHECKBOX
+   ============================================================ */
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================================
+   ATTACHMENT — selected files list (current step)
+   ============================================================ */
+
+.attachment-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.attachment-option .muted-text {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.attachment-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+  background: #f9fafb;
+}
+
+.attachment-row,
+.prev-attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.attachment-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #111827;
+}
+
+/* ============================================================
+   ATTACHMENT — previous steps list
+   ============================================================ */
+
+.prev-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.prev-attachment-row {
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* ============================================================
+   BUTTONS / LINKS used with attachments
+   ============================================================ */
+
+.view-btn,
+.download-btn {
+  font-size: 13px;
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.view-btn:hover,
+.download-btn:hover {
+  color: #1d4ed8;
+}
+
+.download-btn {
+  color: #4b5563;
+}
+
+.download-btn:hover {
+  color: #111827;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: #7f1d1d;
+}
+
+.muted-text {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.muted {
+  color: #9ca3af;
+}
+
+/* ============================================================
+   PREVIOUS STEPS (each step card)
+   ============================================================ */
+
+.previous-step-fields {
+  margin-bottom: 12px;
+}
+
+.previous-step-fields .field .input[readonly] {
+  background: #f3f4f6;
+  cursor: default;
+}
+
+/* .success-banner {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #10b981;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+} */
+ /* ============================================================
+   ATTACHMENT FIELD — RED & WHITE THEME
+   ============================================================ */
+
+/* Wrapper */
+.workflow-task-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.workflow-task-form .field > span {
+  font-weight: 600;
+  font-size: 13px;
+  color: #374151;
+  letter-spacing: 0.2px;
+}
+
+/* ============================================================
+   ACTION ROW (Change file button + help text)
+   ============================================================ */
+
+.attachment-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* Button — red theme */
+.attachment-option .btn-success,
+.attachment-option .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1.5px solid transparent;
+  user-select: none;
+}
+
+/* When file IS attached (green tick) — but styled red per requirement */
+.attachment-option .btn-success {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2);
+}
+
+.attachment-option .btn-success:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+}
+
+/* When no file yet */
+.attachment-option .btn-secondary {
+  background: #ffffff;
+  color: #dc2626;
+  border-color: #dc2626;
+}
+
+.attachment-option .btn-secondary:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* Help text (Allowed: PDF • Max 5 MB • Single file) */
+.attachment-option .muted-text {
+  font-size: 12px;
+  color: #6b7280;
+  letter-spacing: 0.1px;
+}
+
+.attachment-option .muted-text strong {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* ============================================================
+   SUCCESS BANNER
+   ============================================================ */
+
+.attachment-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+
+  /* red-tinted background to match theme */
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+}
+
+/* If you prefer classic green-tinted success while keeping red accents */
+.attachment-banner.alt-green {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-left: 4px solid #10b981;
+}
+
+/* ============================================================
+   FILE ROW (list of attached files)
+   ============================================================ */
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #f3f4f6;
+  border-left: 4px solid #dc2626;
+  font-size: 13px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.attachment-row:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  border-left-color: #b91c1c;
+}
+
+/* Check mark */
+.attachment-row .attachment-check,
+.attachment-check {
+  color: #dc2626;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* File name + size */
+.attachment-row .attachment-name,
+.attachment-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #111827;
+  font-weight: 500;
+}
+
+.attachment-row .attachment-size,
+.attachment-size {
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+/* ============================================================
+   PREVIEW + REMOVE LINKS
+   ============================================================ */
+
+.attachment-row .view-btn,
+.attachment-row .link-btn,
+.view-btn,
+.link-btn {
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: none;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* Preview — red outline */
+.attachment-row .view-btn,
+.view-btn {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.attachment-row .view-btn:hover,
+.view-btn:hover {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+}
+
+/* Remove — subtle red text */
+.attachment-row .link-btn,
+.link-btn {
+  color: #6b7280;
+}
+
+.attachment-row .link-btn:hover,
+.link-btn:hover {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+/* ============================================================
+   EMPTY STATE
+   ============================================================ */
+
+.attachment-empty {
+  display: block;
+  margin-top: 4px;
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* ============================================================
+   OPTIONAL — required asterisk in red
+   ============================================================ */
+
+.workflow-task-form .field > span .req,
+.required-star {
+  color: #dc2626;
+  font-weight: 700;
+  margin-left: 2px;
+}

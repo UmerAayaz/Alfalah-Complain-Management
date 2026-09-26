@@ -5,11 +5,21 @@ using BankingPlatform.Domain.Entities;
 using BankingPlatform.Domain.Enums;
 using BankingPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 
 namespace BankingPlatform.Infrastructure.Services;
 
-public sealed class SqlWorkflowRuntime(AppDbContext db) : IWorkflowRuntime
+public sealed class SqlWorkflowRuntime(
+    AppDbContext db,
+    IFileStorage fileStorage) : IWorkflowRuntime
 {
+    private readonly AppDbContext _db = db;
+    private readonly IFileStorage _fileStorage = fileStorage;
+
+    // ============================================================
+    // START
+    // ============================================================
+
     public async Task StartAsync(Complaint complaint, CancellationToken cancellationToken)
     {
         var definition = await db.WorkflowDefinitions
@@ -36,11 +46,20 @@ public sealed class SqlWorkflowRuntime(AppDbContext db) : IWorkflowRuntime
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task CompleteTaskAsync(Guid taskId, Guid actorUserId, CompleteWorkflowTaskRequest request, CancellationToken cancellationToken)
+    // ============================================================
+    // COMPLETE TASK
+    // ============================================================
+
+    public async Task CompleteTaskAsync(
+        Guid taskId,
+        Guid actorUserId,
+        CompleteWorkflowTaskRequest request,
+        IReadOnlyList<IFormFile>? files,
+        CancellationToken cancellationToken)
     {
-       var task = await db.WorkflowTasks
-    .Include(x => x.WorkflowNode)
-        .ThenInclude(x => x.Fields)
+        var task = await db.WorkflowTasks
+            .Include(x => x.WorkflowNode)
+                .ThenInclude(x => x.Fields)
             .Include(x => x.WorkflowInstance)
                 .ThenInclude(x => x.WorkflowDefinition)
                     .ThenInclude(x => x.Nodes)
@@ -63,98 +82,150 @@ public sealed class SqlWorkflowRuntime(AppDbContext db) : IWorkflowRuntime
                 x.RoleCode == task.AssignedRoleCode, cancellationToken);
         }
 
-        if (!canAct) throw new UnauthorizedAccessException("This task is not assigned to you or your role queue.");
+        if (!canAct)
+            throw new UnauthorizedAccessException("This task is not assigned to you or your role queue.");
 
         if (request.NextAssigneeUserId.HasValue)
         {
-            var userExists = await db.Users.AnyAsync(x => x.Id == request.NextAssigneeUserId.Value && x.IsActive, cancellationToken);
-            if (!userExists) throw new ArgumentException("Selected assignee does not exist or is inactive.");
+            var userExists = await db.Users.AnyAsync(x =>
+                x.Id == request.NextAssigneeUserId.Value && x.IsActive, cancellationToken);
+
+            if (!userExists)
+                throw new ArgumentException("Selected assignee does not exist or is inactive.");
         }
 
-        var fields =
-    task.WorkflowNode.Fields
-        .OrderBy(x => x.DisplayOrder)
-        .ToList();
+        var fields = task.WorkflowNode.Fields
+            .OrderBy(x => x.DisplayOrder)
+            .ToList();
 
-var suppliedAnswers =
-    request.FieldAnswers ??
-    Array.Empty<WorkflowFieldAnswerRequest>();
+        var suppliedAnswers = request.FieldAnswers ?? Array.Empty<WorkflowFieldAnswerRequest>();
 
-var answerLookup =
-    suppliedAnswers
-        .GroupBy(x => x.FieldId)
-        .ToDictionary(
-            x => x.Key,
-            x => x.Last());
+        var answerLookup = suppliedAnswers
+            .GroupBy(x => x.FieldId)
+            .ToDictionary(x => x.Key, x => x.Last());
 
-foreach (
-    var answer in suppliedAnswers)
-{
-    if (
-        fields.All(
-            x =>
-                x.Id != answer.FieldId))
-    {
-        throw new ArgumentException(
-            "One of the submitted fields does not belong to this workflow step.");
-    }
-}
-
-foreach (
-    var requiredField in
-    fields.Where(x => x.IsRequired))
-{
-    if (
-        !answerLookup.TryGetValue(
-            requiredField.Id,
-            out var answer) ||
-        IsEmpty(answer.Value))
-    {
-        throw new ArgumentException(
-            $"'{requiredField.Label}' is required.");
-    }
-}
-
-foreach (var field in fields)
-{
-    answerLookup.TryGetValue(
-        field.Id,
-        out var answer);
-
-    var valueJson =
-        answer?.Value is null
-            ? null
-            : answer.Value.Value
-                .GetRawText();
-
-    db.WorkflowFieldResponses.Add(
-        new WorkflowFieldResponse
+        Console.WriteLine("=== FIELD ID DEBUG BACKEND ===");
+        foreach (var field in fields)
         {
-            ComplaintId =
-                task.ComplaintId,
+            Console.WriteLine($"Backend Field: Id={field.Id}, Label={field.Label}, Type={field.FieldType}");
+        }
+        foreach (var answer in suppliedAnswers)
+        {
+            Console.WriteLine($"Submitted Field: Id={answer.FieldId}");
+        }
 
-            WorkflowTaskId =
-                task.Id,
+        foreach (var answer in suppliedAnswers)
+        {
+            if (fields.All(x => x.Id != answer.FieldId))
+            {
+                throw new ArgumentException(
+                    "One of the submitted fields does not belong to this workflow step.");
+            }
+        }
 
-            WorkflowNodeId =
-                task.WorkflowNodeId,
+        Console.WriteLine("=== ATTACHMENT DEBUG ===");
+        Console.WriteLine($"Files count: {files?.Count ?? 0}");
+        if (files != null)
+        {
+            foreach (var file in files)
+            {
+                Console.WriteLine($"File: Name={file.Name}, FileName={file.FileName}, Size={file.Length}");
+            }
+        }
 
-            WorkflowNodeFieldId =
-                field.Id,
+        // --- Required-field validation (both attachment and normal) ---
+        foreach (var requiredField in fields.Where(x => x.IsRequired))
+        {
+            if (string.Equals(requiredField.FieldType, "attachment", StringComparison.OrdinalIgnoreCase))
+            {
+                // Accept "files_<fieldId>" OR "files[<fieldId>]"
+                var hasFile = files?.Any(x =>
+                    x.Length > 0 &&
+                    (string.Equals(x.Name, $"files_{requiredField.Id}", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(x.Name, $"files[{requiredField.Id}]", StringComparison.OrdinalIgnoreCase)))
+                    ?? false;
 
-            SubmittedByUserId =
-                actorUserId,
-            
-            Label = field.Label,
-            
+                if (!hasFile)
+                    throw new ArgumentException($"'{requiredField.Label}' is required.");
 
-            ValueJson =
-                valueJson,
+                continue;
+            }
 
-            SubmittedAtUtc =
-                DateTime.UtcNow
-        });
-}
+            if (!answerLookup.TryGetValue(requiredField.Id, out var answer) ||
+                IsEmpty(answer.Value))
+            {
+                throw new ArgumentException($"'{requiredField.Label}' is required.");
+            }
+        }
+
+        // --- Persist field responses + attachments ---
+        foreach (var field in fields)
+        {
+            answerLookup.TryGetValue(field.Id, out var answer);
+
+            var valueJson = answer?.Value is null
+                ? null
+                : answer.Value.Value.GetRawText();
+
+            var response = new WorkflowFieldResponse
+            {
+                ComplaintId = task.ComplaintId,
+                WorkflowTaskId = task.Id,
+                WorkflowNodeId = task.WorkflowNodeId,
+                WorkflowNodeFieldId = field.Id,
+                SubmittedByUserId = actorUserId,
+                Label = field.Label,
+                ValueJson = valueJson,
+                SubmittedAtUtc = DateTime.UtcNow
+            };
+
+            db.WorkflowFieldResponses.Add(response);
+
+            if (string.Equals(field.FieldType, "attachment", StringComparison.OrdinalIgnoreCase))
+            {
+                var fieldFiles = files?
+                    .Where(x =>
+                        string.Equals(x.Name, $"files_{field.Id}", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(x.Name, $"files[{field.Id}]", StringComparison.OrdinalIgnoreCase))
+                    .ToList()
+                    ?? new List<IFormFile>();
+
+                foreach (var file in fieldFiles)
+                {
+                    if (file.Length <= 0)
+                        continue;
+
+                    var extension = Path.GetExtension(file.FileName);
+                    var storedFileName = $"{Guid.NewGuid()}{extension}";
+
+                    // Storage relative path inside the storage root
+                    var relativePath = Path
+                        .Combine("workflow-attachments", storedFileName)
+                        .Replace("\\", "/");
+
+                    // Save via the abstracted storage (disk root configured in Program.cs)
+                    await _fileStorage.SaveAsync(
+                        file.OpenReadStream(),
+                        relativePath,
+                        file.ContentType ?? "application/octet-stream",
+                        cancellationToken);
+
+                    db.WorkflowFieldAttachments.Add(new WorkflowFieldAttachment
+                    {
+                        Id = Guid.NewGuid(),
+                        WorkflowFieldResponseId = response.Id,
+                        FileName = file.FileName,
+                        StoredFileName = storedFileName,
+                        ContentType = string.IsNullOrWhiteSpace(file.ContentType)
+                            ? "application/octet-stream"
+                            : file.ContentType,
+                        FileSize = file.Length,
+                        FilePath = relativePath,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+        }
 
         task.Status = WorkflowTaskStatus.Completed;
         task.CompletedAtUtc = DateTime.UtcNow;
@@ -172,9 +243,22 @@ foreach (var field in fields)
 
         task.WorkflowInstance.Complaint = task.Complaint;
         var definition = task.WorkflowInstance.WorkflowDefinition;
-        await MoveFromNodeAsync(task.WorkflowInstance, definition, task.WorkflowNode, request.OutcomeKey, request.NextAssigneeUserId, actorUserId, cancellationToken);
+
+        await MoveFromNodeAsync(
+            task.WorkflowInstance,
+            definition,
+            task.WorkflowNode,
+            request.OutcomeKey,
+            request.NextAssigneeUserId,
+            actorUserId,
+            cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    // ============================================================
+    // TRANSITION / NODE ENTRY
+    // ============================================================
 
     private async Task MoveFromNodeAsync(
         WorkflowInstance instance,
@@ -185,12 +269,16 @@ foreach (var field in fields)
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
-        var outgoing = definition.Transitions.Where(x => x.SourceNodeId == sourceNode.Id).ToList();
+        var outgoing = definition.Transitions
+            .Where(x => x.SourceNodeId == sourceNode.Id)
+            .ToList();
+
         WorkflowTransition? transition;
 
         if (!string.IsNullOrWhiteSpace(outcomeKey))
         {
-            transition = outgoing.FirstOrDefault(x => string.Equals(x.OutcomeKey, outcomeKey, StringComparison.OrdinalIgnoreCase))
+            transition = outgoing.FirstOrDefault(x =>
+                string.Equals(x.OutcomeKey, outcomeKey, StringComparison.OrdinalIgnoreCase))
                 ?? outgoing.FirstOrDefault(x => string.IsNullOrWhiteSpace(x.OutcomeKey));
         }
         else
@@ -200,7 +288,8 @@ foreach (var field in fields)
         }
 
         if (transition is null)
-            throw new InvalidOperationException($"No transition matched outcome '{outcomeKey ?? "<default>"}' from node '{sourceNode.Name}'.");
+            throw new InvalidOperationException(
+                $"No transition matched outcome '{outcomeKey ?? "<default>"}' from node '{sourceNode.Name}'.");
 
         var target = definition.Nodes.Single(x => x.Id == transition.TargetNodeId);
         await EnterNodeAsync(instance, definition, target, nextAssigneeUserId, actorUserId, cancellationToken);
@@ -253,8 +342,10 @@ foreach (var field in fields)
                 x.UserId == explicitAssigneeUserId.Value &&
                 x.DepartmentId == definition.DepartmentId &&
                 x.RoleCode == node.RoleCode, cancellationToken);
+
             if (!hasRole)
-                throw new InvalidOperationException($"Selected user does not have role '{node.RoleCode}' in this department.");
+                throw new InvalidOperationException(
+                    $"Selected user does not have role '{node.RoleCode}' in this department.");
         }
 
         var now = DateTime.UtcNow;
@@ -283,6 +374,10 @@ foreach (var field in fields)
         });
     }
 
+    // ============================================================
+    // HELPERS
+    // ============================================================
+
     private static bool RequiresSpecificAssignee(WorkflowNode node)
     {
         if (string.IsNullOrWhiteSpace(node.ConfigJson)) return false;
@@ -298,39 +393,21 @@ foreach (var field in fields)
         }
     }
 
-    private static bool IsEmpty(
-    JsonElement? value)
-{
-    if (!value.HasValue)
-        return true;
-
-    var element = value.Value;
-
-    if (
-        element.ValueKind ==
-        JsonValueKind.Null ||
-        element.ValueKind ==
-        JsonValueKind.Undefined)
+    private static bool IsEmpty(JsonElement? value)
     {
-        return true;
+        if (!value.HasValue) return true;
+        var element = value.Value;
+
+        if (element.ValueKind == JsonValueKind.Null ||
+            element.ValueKind == JsonValueKind.Undefined)
+            return true;
+
+        if (element.ValueKind == JsonValueKind.String)
+            return string.IsNullOrWhiteSpace(element.GetString());
+
+        if (element.ValueKind == JsonValueKind.Array)
+            return element.GetArrayLength() == 0;
+
+        return false;
     }
-
-    if (
-        element.ValueKind ==
-        JsonValueKind.String)
-    {
-        return string.IsNullOrWhiteSpace(
-            element.GetString());
-    }
-
-    if (
-        element.ValueKind ==
-        JsonValueKind.Array)
-    {
-        return element.GetArrayLength() == 0;
-    }
-
-    return false;
-}
-
 }

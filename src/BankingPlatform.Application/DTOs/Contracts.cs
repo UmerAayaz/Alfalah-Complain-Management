@@ -1,5 +1,6 @@
 using BankingPlatform.Domain.Enums;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace BankingPlatform.Application.DTOs;
 
@@ -38,6 +39,10 @@ public sealed record ComplaintDetailsDto(
     DateTime? ResolvedAtUtc,
     IReadOnlyList<ComplaintEventDto> Timeline);
 
+// ============================================================
+// WORKFLOW DEFINITION (designer input)
+// ============================================================
+
 public sealed record WorkflowNodeRequest(
     string Key,
     string Name,
@@ -49,6 +54,7 @@ public sealed record WorkflowNodeRequest(
     decimal Y,
     string? ConfigJson = null,
     IReadOnlyList<WorkflowNodeFieldRequest>? Fields = null);
+
 public sealed record WorkflowEdgeRequest(
     string SourceKey,
     string TargetKey,
@@ -71,6 +77,10 @@ public sealed record WorkflowDefinitionDto(
     WorkflowDefinitionStatus Status,
     string DesignerJson,
     DateTime? PublishedAtUtc);
+
+// ============================================================
+// WORKFLOW TASKS
+// ============================================================
 
 public sealed record WorkflowTaskDto(
     Guid Id,
@@ -101,21 +111,55 @@ public sealed record CompleteWorkflowTaskRequest(
     string? Comment,
     IReadOnlyList<WorkflowFieldAnswerRequest>? FieldAnswers = null);
 
-    public sealed record WorkflowNodeFieldRequest(
+// ============================================================
+// WORKFLOW NODE FIELD (designer → entity)
+// ============================================================
+
+public sealed record WorkflowNodeFieldRequest(
     string FieldKey,
     string Label,
     string FieldType,
     string? Placeholder,
     bool IsRequired,
     int DisplayOrder,
-    IReadOnlyList<string>? Options);
+    IReadOnlyList<string>? Options,
+
+    // Attachment configuration (only used when FieldType == "attachment")
+    IReadOnlyList<string>? AllowedFileTypes = null,
+    int? MaxFileSizeMb = null,
+    bool? AllowMultiple = null);
+
+// ============================================================
+// REFERENCE / USER DTOs
+// ============================================================
 
 public sealed record ReassignWorkflowTaskRequest(Guid UserId, string? Comment);
 
 public sealed record ReferenceItemDto(Guid Id, string Code, string Name);
-public sealed record UserReferenceDto(Guid Id, string EmployeeCode, string DisplayName, string Email, string RoleCode);
-public sealed record CurrentUserMembershipDto(Guid DepartmentId, string DepartmentCode, string DepartmentName, string RoleCode);
-public sealed record CurrentUserDto(Guid Id, string EmployeeCode, string DisplayName, string Email, IReadOnlyList<CurrentUserMembershipDto> Memberships);
+
+public sealed record UserReferenceDto(
+    Guid Id,
+    string EmployeeCode,
+    string DisplayName,
+    string Email,
+    string RoleCode);
+
+public sealed record CurrentUserMembershipDto(
+    Guid DepartmentId,
+    string DepartmentCode,
+    string DepartmentName,
+    string RoleCode);
+
+public sealed record CurrentUserDto(
+    Guid Id,
+    string EmployeeCode,
+    string DisplayName,
+    string Email,
+    IReadOnlyList<CurrentUserMembershipDto> Memberships);
+
+// ============================================================
+// WORKFLOW TASK FORM (entity → frontend)
+// ============================================================
 
 public sealed record WorkflowTaskFieldDto(
     Guid Id,
@@ -125,7 +169,12 @@ public sealed record WorkflowTaskFieldDto(
     string? Placeholder,
     bool IsRequired,
     int DisplayOrder,
-    IReadOnlyList<string> Options);
+    IReadOnlyList<string> Options,
+
+    // Attachment configuration — filled only when FieldType == "attachment"
+    IReadOnlyList<string>? AllowedFileTypes = null,
+    int? MaxFileSizeMb = null,
+    bool? AllowMultiple = null);
 
 public sealed record PreviousWorkflowFieldDto(
     string FieldKey,
@@ -147,6 +196,25 @@ public sealed record WorkflowTaskFormDto(
     IReadOnlyList<WorkflowTaskFieldDto> CurrentFields,
     IReadOnlyList<PreviousWorkflowStepDto> PreviousSteps);
 
-    public sealed record WorkflowFieldAnswerRequest(
-    Guid FieldId,
-    JsonElement? Value);
+// ============================================================
+// FIELD ANSWER (frontend → backend)
+// ============================================================
+
+/// <summary>
+/// One answer for one dynamic field on a workflow task.
+/// Value is intentionally JsonElement? so it can carry strings, numbers, booleans,
+/// option codes, attachment IDs, etc. without DTO churn.
+/// </summary>
+public sealed record WorkflowFieldAnswerRequest(
+    [property: JsonPropertyName("fieldId")] Guid FieldId,
+    [property: JsonPropertyName("value")]   JsonElement? Value)
+{
+    /// <summary>Convenience: get the value as a string when the JSON is a string.</summary>
+    public string? AsString() => Value switch
+    {
+        null => null,
+        { ValueKind: JsonValueKind.Null } => null,
+        { ValueKind: JsonValueKind.String } v => v.GetString(),
+        _ => Value.Value.ToString()
+    };
+}
