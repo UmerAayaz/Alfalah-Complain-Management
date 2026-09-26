@@ -8,6 +8,14 @@ const fieldTypes = [
   ['dropdown', 'Dropdown'],
   ['radio', 'Radio buttons'],
   ['checkbox', 'Checkbox'],
+  ['attachment', 'Attachment'],
+]
+
+const attachmentTypes = [
+  ['pdf', 'PDF'],
+  ['jpg', 'JPG'],
+  ['png', 'PNG'],
+  ['docx', 'DOCX'],
 ]
 
 function makeFieldKey(label) {
@@ -28,6 +36,11 @@ function createEmptyField(displayOrder) {
     isRequired: false,
     displayOrder,
     options: [],
+
+    // Attachment settings
+    allowMultiple: false,
+    allowedFileTypes: ['pdf'],
+    maxFileSizeMb: 5,
   }
 }
 
@@ -36,14 +49,9 @@ export default function WorkflowFieldBuilder({
   onChange,
   disabled = false,
 }) {
-  const [isModalOpen, setIsModalOpen] =
-    useState(false)
-
-  const [editingIndex, setEditingIndex] =
-    useState(null)
-
-  const [draftField, setDraftField] =
-    useState(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [draftField, setDraftField] = useState(null)
 
   // --------------------------------------------------
   // OPEN ADD MODAL
@@ -51,11 +59,7 @@ export default function WorkflowFieldBuilder({
 
   const openAddModal = () => {
     setEditingIndex(null)
-
-    setDraftField(
-      createEmptyField(fields.length)
-    )
-
+    setDraftField(createEmptyField(fields.length))
     setIsModalOpen(true)
   }
 
@@ -69,6 +73,14 @@ export default function WorkflowFieldBuilder({
     setDraftField({
       ...field,
       options: [...(field.options || [])],
+
+      allowMultiple: field.allowMultiple || false,
+
+      allowedFileTypes: field.allowedFileTypes?.length
+        ? [...field.allowedFileTypes]
+        : ['pdf'],
+
+      maxFileSizeMb: field.maxFileSizeMb || 5,
     })
 
     setIsModalOpen(true)
@@ -110,21 +122,18 @@ export default function WorkflowFieldBuilder({
     }
 
     const fieldKey =
-      draftField.fieldKey.trim() ||
-      makeFieldKey(label)
+      draftField.fieldKey.trim() || makeFieldKey(label)
 
     if (!fieldKey) {
       window.alert('Field key is required.')
       return
     }
 
-    // Prevent duplicate field keys inside the same step
+    // Prevent duplicate field keys
     const duplicateKey = fields.some(
       (field, index) =>
         index !== editingIndex &&
-        (field.fieldKey || '')
-          .trim()
-          .toLowerCase() ===
+        (field.fieldKey || '').trim().toLowerCase() ===
           fieldKey.toLowerCase()
     )
 
@@ -135,25 +144,67 @@ export default function WorkflowFieldBuilder({
       return
     }
 
+    // Dropdown / Radio validation
     if (
       (draftField.fieldType === 'dropdown' ||
         draftField.fieldType === 'radio') &&
-      (!draftField.options ||
-        draftField.options.length === 0)
+      (!draftField.options || draftField.options.length === 0)
     ) {
-      window.alert(
-        'Please add at least one option.'
-      )
+      window.alert('Please add at least one option.')
       return
+    }
+
+    // Attachment validation
+    if (draftField.fieldType === 'attachment') {
+      if (
+        !draftField.allowedFileTypes ||
+        draftField.allowedFileTypes.length === 0
+      ) {
+        window.alert(
+          'Please select at least one allowed file type.'
+        )
+        return
+      }
+
+      const maxSize = Number(draftField.maxFileSizeMb)
+
+      if (!maxSize || maxSize <= 0) {
+        window.alert(
+          'Maximum file size must be greater than 0 MB.'
+        )
+        return
+      }
     }
 
     const fieldToSave = {
       ...draftField,
+
       label,
+
       fieldKey,
+
+      // attachment fields don't need a placeholder
       placeholder:
-        draftField.placeholder?.trim() || '',
+        draftField.fieldType === 'attachment'
+          ? ''
+          : draftField.placeholder?.trim() || '',
+
       options: draftField.options || [],
+
+      allowMultiple:
+        draftField.fieldType === 'attachment'
+          ? !!draftField.allowMultiple
+          : false,
+
+      allowedFileTypes:
+        draftField.fieldType === 'attachment'
+          ? draftField.allowedFileTypes || []
+          : [],
+
+      maxFileSizeMb:
+        draftField.fieldType === 'attachment'
+          ? Number(draftField.maxFileSizeMb || 5)
+          : null,
     }
 
     // EDIT EXISTING FIELD
@@ -163,8 +214,7 @@ export default function WorkflowFieldBuilder({
           index === editingIndex
             ? {
                 ...fieldToSave,
-                displayOrder:
-                  field.displayOrder ?? index,
+                displayOrder: field.displayOrder ?? index,
               }
             : field
         )
@@ -192,10 +242,7 @@ export default function WorkflowFieldBuilder({
   const removeField = (index) => {
     onChange(
       fields
-        .filter(
-          (_, fieldIndex) =>
-            fieldIndex !== index
-        )
+        .filter((_, fieldIndex) => fieldIndex !== index)
         .map((field, fieldIndex) => ({
           ...field,
           displayOrder: fieldIndex,
@@ -203,16 +250,37 @@ export default function WorkflowFieldBuilder({
     )
   }
 
+  // --------------------------------------------------
+  // ATTACHMENT TYPE TOGGLE
+  // --------------------------------------------------
+
+  const toggleAttachmentType = (type) => {
+    const current = draftField.allowedFileTypes || []
+    const exists = current.includes(type)
+
+    const updated = exists
+      ? current.filter((item) => item !== type)
+      : [...current, type]
+
+    updateDraftField({
+      allowedFileTypes: updated,
+    })
+  }
+
+  // --------------------------------------------------
+  // Determine if the current draft is an attachment field
+  // --------------------------------------------------
+
+  const isAttachmentField =
+    draftField?.fieldType === 'attachment'
+
   return (
     <div className="workflow-field-builder">
-      <div className="designer-section-title">
-        Step fields
-      </div>
+      <div className="designer-section-title">Step fields</div>
 
       <p className="muted-text">
-        These fields will be editable by the
-        person completing this step. Earlier
-        step values will appear read-only.
+        These fields will be editable by the person completing this
+        step. Earlier step values will appear read-only.
       </p>
 
       {/* ---------------------------------------
@@ -228,23 +296,24 @@ export default function WorkflowFieldBuilder({
       {fields.map((field, index) => (
         <div
           className="workflow-field-summary"
-          key={
-            field.clientId ||
-            field.id ||
-            index
-          }
+          key={field.clientId || field.id || index}
         >
           <div className="workflow-field-summary-info">
-            <strong>
-              {field.label || 'Untitled field'}
-            </strong>
+            <strong>{field.label || 'Untitled field'}</strong>
 
             <div className="workflow-field-meta">
               {field.fieldType || 'text'}
 
-              {field.isRequired
-                ? ' • Required'
-                : ' • Optional'}
+              {field.isRequired ? ' • Required' : ' • Optional'}
+
+              {field.fieldType === 'attachment' && (
+                <>
+                  {' • '}
+                  {field.allowMultiple
+                    ? 'Multiple files'
+                    : 'Single file'}
+                </>
+              )}
             </div>
 
             <div className="workflow-field-key">
@@ -257,9 +326,7 @@ export default function WorkflowFieldBuilder({
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() =>
-                  openEditModal(field, index)
-                }
+                onClick={() => openEditModal(field, index)}
               >
                 Edit
               </button>
@@ -267,9 +334,7 @@ export default function WorkflowFieldBuilder({
               <button
                 type="button"
                 className="btn btn-danger-soft"
-                onClick={() =>
-                  removeField(index)
-                }
+                onClick={() => removeField(index)}
               >
                 Remove
               </button>
@@ -296,10 +361,7 @@ export default function WorkflowFieldBuilder({
         <div
           className="workflow-field-modal-backdrop"
           onMouseDown={(event) => {
-            if (
-              event.target ===
-              event.currentTarget
-            ) {
+            if (event.target === event.currentTarget) {
               closeModal()
             }
           }}
@@ -310,6 +372,8 @@ export default function WorkflowFieldBuilder({
             aria-modal="true"
             aria-labelledby="workflow-field-modal-title"
           >
+            {/* HEADER */}
+
             <div className="workflow-field-modal-header">
               <div>
                 <h3
@@ -322,8 +386,7 @@ export default function WorkflowFieldBuilder({
                 </h3>
 
                 <p className="muted-text">
-                  Configure the field for this
-                  workflow step.
+                  Configure the field for this workflow step.
                 </p>
               </div>
 
@@ -337,6 +400,8 @@ export default function WorkflowFieldBuilder({
               </button>
             </div>
 
+            {/* BODY */}
+
             <div className="workflow-field-modal-body">
               {/* FIELD LABEL */}
 
@@ -346,33 +411,22 @@ export default function WorkflowFieldBuilder({
                 <input
                   className="input"
                   autoFocus
-                  value={
-                    draftField.label || ''
-                  }
+                  value={draftField.label || ''}
                   onChange={(event) => {
-                    const oldGeneratedKey =
-                      makeFieldKey(
-                        draftField.label || ''
-                      )
+                    const oldGeneratedKey = makeFieldKey(
+                      draftField.label || ''
+                    )
 
-                    const label =
-                      event.target.value
+                    const label = event.target.value
 
                     const shouldUpdateKey =
                       !draftField.fieldKey ||
-                      draftField.fieldKey ===
-                        oldGeneratedKey
+                      draftField.fieldKey === oldGeneratedKey
 
                     updateDraftField({
                       label,
-
                       ...(shouldUpdateKey
-                        ? {
-                            fieldKey:
-                              makeFieldKey(
-                                label
-                              ),
-                          }
+                        ? { fieldKey: makeFieldKey(label) }
                         : {}),
                     })
                   }}
@@ -387,13 +441,10 @@ export default function WorkflowFieldBuilder({
 
                 <input
                   className="input"
-                  value={
-                    draftField.fieldKey || ''
-                  }
+                  value={draftField.fieldKey || ''}
                   onChange={(event) =>
                     updateDraftField({
-                      fieldKey:
-                        event.target.value,
+                      fieldKey: event.target.value,
                     })
                   }
                   placeholder="e.g. cnic_number"
@@ -407,92 +458,176 @@ export default function WorkflowFieldBuilder({
 
                 <select
                   className="input"
-                  value={
-                    draftField.fieldType ||
-                    'text'
-                  }
+                  value={draftField.fieldType || 'text'}
                   onChange={(event) => {
-                    const fieldType =
-                      event.target.value
+                    const fieldType = event.target.value
 
                     updateDraftField({
                       fieldType,
 
                       options:
-                        fieldType ===
-                          'dropdown' ||
+                        fieldType === 'dropdown' ||
                         fieldType === 'radio'
-                          ? draftField.options ||
-                            []
+                          ? draftField.options || []
                           : [],
+
+                      // when switching to attachment, clear placeholder
+                      placeholder:
+                        fieldType === 'attachment'
+                          ? ''
+                          : draftField.placeholder || '',
+
+                      allowMultiple:
+                        fieldType === 'attachment'
+                          ? draftField.allowMultiple || false
+                          : false,
+
+                      allowedFileTypes:
+                        fieldType === 'attachment'
+                          ? draftField.allowedFileTypes || ['pdf']
+                          : [],
+
+                      maxFileSizeMb:
+                        fieldType === 'attachment'
+                          ? draftField.maxFileSizeMb || 5
+                          : null,
                     })
                   }}
                 >
-                  {fieldTypes.map(
-                    ([value, label]) => (
-                      <option
-                        key={value}
-                        value={value}
-                      >
-                        {label}
-                      </option>
-                    )
-                  )}
+                  {fieldTypes.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </label>
 
-              {/* PLACEHOLDER */}
+              {/* PLACEHOLDER — hidden for attachment fields */}
 
-              <label className="field compact">
-                <span>Placeholder</span>
-
-                <input
-                  className="input"
-                  value={
-                    draftField.placeholder ||
-                    ''
-                  }
-                  onChange={(event) =>
-                    updateDraftField({
-                      placeholder:
-                        event.target.value,
-                    })
-                  }
-                  placeholder="e.g. Enter CNIC number"
-                />
-              </label>
-
-              {/* DROPDOWN / RADIO OPTIONS */}
-
-              {(draftField.fieldType ===
-                'dropdown' ||
-                draftField.fieldType ===
-                  'radio') && (
+              {!isAttachmentField && (
                 <label className="field compact">
-                  <span>
-                    Options — one per line
-                  </span>
+                  <span>Placeholder</span>
+
+                  <input
+                    className="input"
+                    value={draftField.placeholder || ''}
+                    onChange={(event) =>
+                      updateDraftField({
+                        placeholder: event.target.value,
+                      })
+                    }
+                    placeholder="e.g. Enter CNIC number"
+                  />
+                </label>
+              )}
+
+              {/* ---------------------------------
+                  ATTACHMENT SETTINGS
+              --------------------------------- */}
+
+              {isAttachmentField && (
+                <div className="attachment-settings">
+                  <div className="designer-section-title">
+                    Attachment settings
+                  </div>
+
+                  {/* ALLOW MULTIPLE */}
+
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={!!draftField.allowMultiple}
+                      onChange={(event) =>
+                        updateDraftField({
+                          allowMultiple: event.target.checked,
+                        })
+                      }
+                    />
+
+                    Allow multiple files
+                  </label>
+
+                  {/* ALLOWED TYPES */}
+
+                  <div className="field compact">
+                    <span>Allowed file types</span>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        marginTop: '8px',
+                      }}
+                    >
+                      {attachmentTypes.map(([type, label]) => (
+                        <label
+                          key={type}
+                          className="checkbox-field"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={(
+                              draftField.allowedFileTypes || []
+                            ).includes(type)}
+                            onChange={() =>
+                              toggleAttachmentType(type)
+                            }
+                          />
+
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* MAX FILE SIZE */}
+
+                  <label className="field compact">
+                    <span>Maximum file size (MB)</span>
+
+                    <input
+                      className="input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={draftField.maxFileSizeMb ?? 5}
+                      onChange={(event) =>
+                        updateDraftField({
+                          maxFileSizeMb: event.target.value,
+                        })
+                      }
+                    />
+
+                    <small className="muted-text">
+                      Default maximum file size is 5 MB.
+                    </small>
+                  </label>
+                </div>
+              )}
+
+              {/* ---------------------------------
+                  DROPDOWN / RADIO OPTIONS
+              --------------------------------- */}
+
+              {(draftField.fieldType === 'dropdown' ||
+                draftField.fieldType === 'radio') && (
+                <label className="field compact">
+                  <span>Options — one per line</span>
 
                   <textarea
                     className="input textarea"
                     rows={5}
-                    value={(
-                      draftField.options || []
-                    ).join('\n')}
+                    value={(draftField.options || []).join('\n')}
                     onChange={(event) =>
                       updateDraftField({
-                        options:
-                          event.target.value
-                            .split('\n')
-                            .map((x) =>
-                              x.trim()
-                            )
-                            .filter(Boolean),
+                        options: event.target.value
+                          .split('\n')
+                          .map((x) => x.trim())
+                          .filter(Boolean),
                       })
                     }
-                    placeholder={
-                      'Option 1\nOption 2\nOption 3'
-                    }
+                    placeholder={'Option 1\nOption 2\nOption 3'}
                   />
                 </label>
               )}
@@ -502,13 +637,10 @@ export default function WorkflowFieldBuilder({
               <label className="checkbox-field">
                 <input
                   type="checkbox"
-                  checked={
-                    !!draftField.isRequired
-                  }
+                  checked={!!draftField.isRequired}
                   onChange={(event) =>
                     updateDraftField({
-                      isRequired:
-                        event.target.checked,
+                      isRequired: event.target.checked,
                     })
                   }
                 />
@@ -516,6 +648,8 @@ export default function WorkflowFieldBuilder({
                 Required field
               </label>
             </div>
+
+            {/* FOOTER */}
 
             <div className="workflow-field-modal-footer">
               <button

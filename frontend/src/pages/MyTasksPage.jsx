@@ -21,6 +21,7 @@ export default function MyTasksPage({ navigate }) {
 
   const [comment, setComment] = useState('')
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -31,7 +32,10 @@ export default function MyTasksPage({ navigate }) {
 
   const [taskForm, setTaskForm] = useState(null)
 
-const [fieldValues, setFieldValues] = useState({})
+  // fieldValues: { [fieldId]: any }
+  //   - normal fields       -> string / number / boolean
+  //   - attachment fields   -> array of File objects
+  const [fieldValues, setFieldValues] = useState({})
 
   // =========================================================
   // LOAD MY WORK QUEUE
@@ -67,14 +71,6 @@ const [fieldValues, setFieldValues] = useState({})
 
   // =========================================================
   // LOAD POSSIBLE ASSIGNEES FOR NEXT WORKFLOW STEP
-  //
-  // Example:
-  // Team Lead -> Officer
-  //
-  // Once the actions API returns targetRoleCode = Officer,
-  // this effect calls:
-  //
-  // /reference/users?departmentId=...&roleCode=Officer
   // =========================================================
 
   useEffect(() => {
@@ -118,12 +114,7 @@ const [fieldValues, setFieldValues] = useState({})
 
         setAssignees(userList)
 
-        // Automatically select first user when the workflow
-        // specifically requires an individual assignment.
-        if (
-          selectedAction.requiresAssignee &&
-          userList.length > 0
-        ) {
+        if (selectedAction.requiresAssignee && userList.length > 0) {
           setAssigneeId(userList[0].id)
         } else {
           setAssigneeId('')
@@ -169,37 +160,25 @@ const [fieldValues, setFieldValues] = useState({})
 
     setComment('')
     setTaskForm(null)
-setFieldValues({})
+    setFieldValues({})
 
     setReassigning(false)
     setReassignUsers([])
     setReassignUserId('')
 
     setError('')
+    setSuccessMessage('')
 
     try {
       console.log('OPENING TASK:', task)
 
-     const [
-  availableActions,
-  form,
-] = await Promise.all([
-  api(
-    `/workflow-tasks/${task.id}/actions`
-  ),
+      const [availableActions, form] = await Promise.all([
+        api(`/workflow-tasks/${task.id}/actions`),
+        api(`/workflow-tasks/${task.id}/form`),
+      ])
 
-  api(
-    `/workflow-tasks/${task.id}/form`
-  ),
-])
-
-setActions(
-  Array.isArray(availableActions)
-    ? availableActions
-    : []
-)
-
-setTaskForm(form)
+      setActions(Array.isArray(availableActions) ? availableActions : [])
+      setTaskForm(form)
     } catch (err) {
       console.error('FAILED TO LOAD TASK ACTIONS:', err)
       setError(err.message)
@@ -213,14 +192,10 @@ setTaskForm(form)
   const complete = async () => {
     if (!selected || !selectedAction) return
 
-    if (
-      selectedAction.requiresAssignee &&
-      !assigneeId
-    ) {
+    if (selectedAction.requiresAssignee && !assigneeId) {
       setError(
         `Select a ${selectedAction.targetRoleCode} before continuing.`
       )
-
       return
     }
 
@@ -228,49 +203,83 @@ setTaskForm(form)
     setError('')
 
     try {
-const payload = {
-  outcomeKey:
-    selectedAction.outcomeKey,
+      const formData = new FormData()
 
-  nextAssigneeUserId:
-    assigneeId || null,
+      formData.append('outcomeKey', selectedAction.outcomeKey || '')
 
-  comment:
-    comment.trim() || null,
+      if (assigneeId) {
+        formData.append('nextAssigneeUserId', assigneeId)
+      }
 
-  fieldAnswers:
-    taskForm?.currentFields?.map(
-      (field) => ({
-        fieldId: field.id,
-        value:
-          fieldValues[field.id] ??
-          null,
-      })
-    ) || [],
-}
+      formData.append('comment', comment.trim() || '')
 
-      console.log('COMPLETING TASK:', {
-        taskId: selected.id,
-        action: selectedAction,
-        payload,
-      })
+      const fieldAnswers = []
+      let attachmentCount = 0
 
-      await api(
-        `/workflow-tasks/${selected.id}/complete`,
-        {
-          method: 'POST',
-          body: payload,
+      taskForm?.currentFields?.forEach((field) => {
+        const isAttachment =
+          field.fieldType?.toLowerCase() === 'attachment'
+
+        if (isAttachment) {
+          // Attachment files go as separate multipart parts.
+          // Backend supports both "files[<fieldId>]" and "files_<fieldId>".
+          // Here we use "files_<fieldId>" to match the current backend.
+          const raw = fieldValues[field.id]
+          const files = Array.isArray(raw) ? raw : raw ? [raw] : []
+
+          files.forEach((file) => {
+            formData.append(`files_${field.id}`, file, file.name)
+          })
+
+          if (files.length > 0) attachmentCount += files.length
+
+          // Answer value is null — backend resolves it to the saved attachment.
+          fieldAnswers.push({ fieldId: field.id, value: null })
+          return
         }
+
+        fieldAnswers.push({
+          fieldId: field.id,
+          value: fieldValues[field.id] ?? null,
+        })
+      })
+
+      formData.append('fieldAnswers', JSON.stringify(fieldAnswers))
+
+      console.log(
+        'COMPLETE PAYLOAD DEBUG:',
+        JSON.stringify(
+          {
+            fieldAnswers,
+            currentFields: taskForm?.currentFields,
+            attachmentCount,
+          },
+          null,
+          2
+        )
       )
 
-      setSelected(null)
+      await api(`/workflow-tasks/${selected.id}/complete`, {
+        method: 'POST',
+        body: formData,
+      })
 
+      // Success banner
+      setSuccessMessage(
+        attachmentCount > 0
+          ? `Task completed successfully with ${attachmentCount} attachment(s).`
+          : 'Task completed successfully.'
+      )
+      setTimeout(() => setSuccessMessage(''), 4000)
+
+      // Reset modal
+      setSelected(null)
       setActions([])
       setAssignees([])
       setAssigneeId('')
       setComment('')
       setTaskForm(null)
-setFieldValues({})
+      setFieldValues({})
 
       await load()
     } catch (err) {
@@ -283,18 +292,10 @@ setFieldValues({})
 
   // =========================================================
   // START REASSIGNMENT
-  //
-  // This moves the CURRENT step to another user without
-  // advancing the workflow.
   // =========================================================
 
   const startReassign = async () => {
-    if (
-      !selected ||
-      !selected.assignedRoleCode
-    ) {
-      return
-    }
+    if (!selected || !selected.assignedRoleCode) return
 
     setReassigning(true)
     setReassignUsers([])
@@ -313,26 +314,16 @@ setFieldValues({})
         )}`
       )
 
-      console.log(
-        'REASSIGNMENT USERS RETURNED:',
-        users
-      )
+      console.log('REASSIGNMENT USERS RETURNED:', users)
 
-      const userList = Array.isArray(users)
-        ? users
-        : []
-
+      const userList = Array.isArray(users) ? users : []
       setReassignUsers(userList)
 
       if (userList.length > 0) {
         setReassignUserId(userList[0].id)
       }
     } catch (err) {
-      console.error(
-        'FAILED TO LOAD REASSIGNMENT USERS:',
-        err
-      )
-
+      console.error('FAILED TO LOAD REASSIGNMENT USERS:', err)
       setError(err.message)
     }
   }
@@ -342,12 +333,7 @@ setFieldValues({})
   // =========================================================
 
   const reassign = async () => {
-    if (
-      !selected ||
-      !reassignUserId
-    ) {
-      return
-    }
+    if (!selected || !reassignUserId) return
 
     setSaving(true)
     setError('')
@@ -358,16 +344,16 @@ setFieldValues({})
         userId: reassignUserId,
       })
 
-      await api(
-        `/workflow-tasks/${selected.id}/reassign`,
-        {
-          method: 'POST',
-          body: {
-            userId: reassignUserId,
-            comment: comment.trim() || null,
-          },
-        }
-      )
+      await api(`/workflow-tasks/${selected.id}/reassign`, {
+        method: 'POST',
+        body: {
+          userId: reassignUserId,
+          comment: comment.trim() || null,
+        },
+      })
+
+      setSuccessMessage('Task reassigned successfully.')
+      setTimeout(() => setSuccessMessage(''), 4000)
 
       setSelected(null)
       setReassigning(false)
@@ -377,11 +363,7 @@ setFieldValues({})
 
       await load()
     } catch (err) {
-      console.error(
-        'FAILED TO REASSIGN TASK:',
-        err
-      )
-
+      console.error('FAILED TO REASSIGN TASK:', err)
       setError(err.message)
     } finally {
       setSaving(false)
@@ -394,11 +376,8 @@ setFieldValues({})
 
   const overdue = useMemo(() => {
     const now = new Date()
-
     return tasks.filter(
-      (task) =>
-        task.dueAtUtc &&
-        new Date(task.dueAtUtc) < now
+      (task) => task.dueAtUtc && new Date(task.dueAtUtc) < now
     ).length
   }, [tasks])
 
@@ -418,14 +397,16 @@ setFieldValues({})
 
       <ErrorBanner message={error} />
 
+      {successMessage && (
+        <div className="success-banner">✓ {successMessage}</div>
+      )}
+
       {/* =====================================================
           TASK LIST
       ====================================================== */}
 
       {loading ? (
-        <div className="loading-block">
-          Loading your queue…
-        </div>
+        <div className="loading-block">Loading your queue…</div>
       ) : tasks.length === 0 ? (
         <section className="panel">
           <EmptyState
@@ -441,20 +422,13 @@ setFieldValues({})
             return (
               <article
                 className={`task-card ${
-                  sla.state === 'danger'
-                    ? 'task-overdue'
-                    : ''
+                  sla.state === 'danger' ? 'task-overdue' : ''
                 }`}
                 key={task.id}
               >
                 <div className="task-card-top">
-                  <span className="step-pill">
-                    {task.nodeName}
-                  </span>
-
-                  <span
-                    className={`sla-chip sla-${sla.state}`}
-                  >
+                  <span className="step-pill">{task.nodeName}</span>
+                  <span className={`sla-chip sla-${sla.state}`}>
                     {sla.text}
                   </span>
                 </div>
@@ -462,62 +436,38 @@ setFieldValues({})
                 <button
                   className="task-title-link"
                   onClick={() =>
-                    navigate(
-                      `/complaints/${task.complaintId}`
-                    )
+                    navigate(`/complaints/${task.complaintId}`)
                   }
                 >
                   {task.complaintNumber}
                 </button>
 
-                <h3>
-                  {task.complaintSubject}
-                </h3>
+                <h3>{task.complaintSubject}</h3>
 
                 <div className="task-details">
                   <div>
                     <span>Queue</span>
-
-                    <strong>
-                      {task.assignedRoleCode || '—'}
-                    </strong>
+                    <strong>{task.assignedRoleCode || '—'}</strong>
                   </div>
-
                   <div>
                     <span>Assigned to</span>
-
                     <strong>
-                      {task.assignedToUserName ||
-                        'Role queue'}
+                      {task.assignedToUserName || 'Role queue'}
                     </strong>
                   </div>
-
                   <div>
                     <span>Opened</span>
-
-                    <strong>
-                      {formatDate(
-                        task.openedAtUtc
-                      )}
-                    </strong>
+                    <strong>{formatDate(task.openedAtUtc)}</strong>
                   </div>
-
                   <div>
                     <span>Due</span>
-
-                    <strong>
-                      {formatDate(
-                        task.dueAtUtc
-                      )}
-                    </strong>
+                    <strong>{formatDate(task.dueAtUtc)}</strong>
                   </div>
                 </div>
 
                 <button
                   className="btn btn-primary full-width"
-                  onClick={() =>
-                    openTask(task)
-                  }
+                  onClick={() => openTask(task)}
                 >
                   Open task
                 </button>
@@ -535,39 +485,24 @@ setFieldValues({})
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
-            if (
-              event.target ===
-              event.currentTarget
-            ) {
+            if (event.target === event.currentTarget) {
               setSelected(null)
             }
           }}
         >
           <div className="modal">
-            {/* =========================
-                MODAL HEADER
-            ========================== */}
-
             <div className="modal-header">
               <div>
                 <div className="eyebrow">
                   {selected.complaintNumber}
                 </div>
-
-                <h2>
-                  {selected.nodeName}
-                </h2>
-
-                <p>
-                  {selected.complaintSubject}
-                </p>
+                <h2>{selected.nodeName}</h2>
+                <p>{selected.complaintSubject}</p>
               </div>
 
               <button
                 className="icon-button"
-                onClick={() =>
-                  setSelected(null)
-                }
+                onClick={() => setSelected(null)}
               >
                 ×
               </button>
@@ -577,71 +512,50 @@ setFieldValues({})
 
             {!reassigning ? (
               <>
-                {/* =========================
-                    ACTION SELECTION
-                ========================== */}
+                {/* ACTION SELECTION */}
 
                 <div className="field">
-                  <span>
-                    Choose action
-                  </span>
+                  <span>Choose action</span>
 
                   <div className="action-choice-list">
-                    {actions.map(
-                      (action, index) => (
-                        <button
-                          key={`${action.targetNodeId}-${index}`}
-                          type="button"
-                          className={`action-choice ${
-                            selectedActionIndex ===
-                            index
-                              ? 'selected'
-                              : ''
-                          }`}
-                          onClick={() => {
-                            setSelectedActionIndex(
-                              index
-                            )
-
-                            setAssignees([])
-                            setAssigneeId('')
-                            setError('')
-                          }}
-                        >
-                          <strong>
-                            {action.label}
-                          </strong>
-
-                          <span>
-                            Next:{' '}
-                            {
-                              action.targetNodeName
-                            }
-
-                            {action.targetRoleCode
-                              ? ` · ${action.targetRoleCode}`
-                              : ''}
-                          </span>
-                        </button>
-                      )
-                    )}
+                    {actions.map((action, index) => (
+                      <button
+                        key={`${action.targetNodeId}-${index}`}
+                        type="button"
+                        className={`action-choice ${
+                          selectedActionIndex === index
+                            ? 'selected'
+                            : ''
+                        }`}
+                        onClick={() => {
+                          setSelectedActionIndex(index)
+                          setAssignees([])
+                          setAssigneeId('')
+                          setError('')
+                        }}
+                      >
+                        <strong>{action.label}</strong>
+                        <span>
+                          Next: {action.targetNodeName}
+                          {action.targetRoleCode
+                            ? ` · ${action.targetRoleCode}`
+                            : ''}
+                        </span>
+                      </button>
+                    ))}
 
                     {actions.length === 0 && (
                       <div className="inline-empty">
-                        No available transition
-                        was returned for this
+                        No available transition was returned for this
                         step.
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* =========================
-                    NEXT USER ASSIGNMENT
-                ========================== */}
+                {/* NEXT USER ASSIGNMENT */}
 
-                {selectedAction?.targetNodeType ===
-                  1 &&
+                {selectedAction?.targetNodeType === 1 &&
                   selectedAction.targetRoleCode && (
                     <label className="field">
                       <span>
@@ -654,122 +568,77 @@ setFieldValues({})
                         className="input"
                         value={assigneeId}
                         onChange={(event) =>
-                          setAssigneeId(
-                            event.target.value
-                          )
+                          setAssigneeId(event.target.value)
                         }
-                        required={
-                          selectedAction.requiresAssignee
-                        }
+                        required={selectedAction.requiresAssignee}
                       >
-                        {/* No users found */}
-
-                        {assignees.length ===
-                          0 && (
+                        {assignees.length === 0 && (
                           <option value="">
-                            No{' '}
-                            {
-                              selectedAction.targetRoleCode
-                            }{' '}
-                            users available
+                            No {selectedAction.targetRoleCode} users
+                            available
                           </option>
                         )}
 
-                        {/* Allow role queue when
-                            direct assignment is optional */}
-
                         {!selectedAction.requiresAssignee &&
-                          assignees.length >
-                            0 && (
-                            <option value="">
-                              Send to role queue
-                            </option>
+                          assignees.length > 0 && (
+                            <option value="">Send to role queue</option>
                           )}
 
-                        {/* Actual users */}
-
-                        {assignees.map(
-                          (user) => (
-                            <option
-                              key={user.id}
-                              value={user.id}
-                            >
-                              {user.displayName}
-                              {' · '}
-                              {
-                                user.employeeCode
-                              }
-                            </option>
-                          )
-                        )}
+                        {assignees.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.displayName} · {user.employeeCode}
+                          </option>
+                        ))}
                       </select>
 
-                      {/* Debug / useful status */}
-
                       {selectedAction.requiresAssignee &&
-                        assignees.length ===
-                          0 && (
+                        assignees.length === 0 && (
                           <small
                             style={{
-                              color:
-                                '#b42318',
-                              marginTop:
-                                '6px',
+                              color: '#b42318',
+                              marginTop: '6px',
                             }}
                           >
-                            No active{' '}
-                            {
-                              selectedAction.targetRoleCode
-                            }{' '}
-                            users were returned
-                            for this department.
+                            No active {selectedAction.targetRoleCode} users
+                            were returned for this department.
                           </small>
                         )}
                     </label>
                   )}
-                  <WorkflowTaskFields
-  form={taskForm}
-  values={fieldValues}
-  onChange={setFieldValues}
-/>
 
-                {/* =========================
-                    COMMENT
-                ========================== */}
+                {/* DYNAMIC FIELDS */}
+
+                <WorkflowTaskFields
+                  form={taskForm}
+                  values={fieldValues}
+                  onChange={setFieldValues}
+                />
+
+                {/* COMMENT */}
 
                 <label className="field">
-                  <span>
-                    Comment
-                  </span>
+                  <span>Comment</span>
 
                   <textarea
                     className="input textarea"
                     rows={4}
                     value={comment}
                     onChange={(event) =>
-                      setComment(
-                        event.target.value
-                      )
+                      setComment(event.target.value)
                     }
                     placeholder="Add an optional action note…"
                   />
                 </label>
 
-                {/* =========================
-                    ACTION BUTTONS
-                ========================== */}
+                {/* ACTION BUTTONS */}
 
                 <div className="modal-actions">
                   {(roles.has('TeamLead') ||
-                    roles.has(
-                      'UnitHead'
-                    )) &&
+                    roles.has('UnitHead')) &&
                     selected.assignedRoleCode && (
                       <button
                         className="btn btn-secondary"
-                        onClick={
-                          startReassign
-                        }
+                        onClick={startReassign}
                       >
                         Reassign current step
                       </button>
@@ -778,9 +647,7 @@ setFieldValues({})
                   <div className="modal-actions-right">
                     <button
                       className="btn btn-secondary"
-                      onClick={() =>
-                        setSelected(null)
-                      }
+                      onClick={() => setSelected(null)}
                     >
                       Cancel
                     </button>
@@ -790,89 +657,58 @@ setFieldValues({})
                       disabled={
                         saving ||
                         !selectedAction ||
-                        (selectedAction.requiresAssignee &&
-                          !assigneeId)
+                        (selectedAction.requiresAssignee && !assigneeId)
                       }
                       onClick={complete}
                     >
                       {saving
                         ? 'Processing…'
-                        : selectedAction?.label ||
-                          'Complete'}
+                        : selectedAction?.label || 'Complete'}
                     </button>
                   </div>
                 </div>
               </>
             ) : (
               <>
-                {/* =================================================
-                    REASSIGNMENT VIEW
-                ================================================== */}
+                {/* REASSIGNMENT VIEW */}
 
                 <div className="notice-box">
                   Reassign this{' '}
-                  <strong>
-                    {
-                      selected.assignedRoleCode
-                    }
-                  </strong>{' '}
-                  task without advancing
-                  the workflow.
+                  <strong>{selected.assignedRoleCode}</strong> task without
+                  advancing the workflow.
                 </div>
 
                 <label className="field">
-                  <span>
-                    Assign to
-                  </span>
+                  <span>Assign to</span>
 
                   <select
                     className="input"
-                    value={
-                      reassignUserId
-                    }
+                    value={reassignUserId}
                     onChange={(event) =>
-                      setReassignUserId(
-                        event.target.value
-                      )
+                      setReassignUserId(event.target.value)
                     }
                   >
-                    {reassignUsers.length ===
-                      0 && (
-                      <option value="">
-                        No users available
-                      </option>
+                    {reassignUsers.length === 0 && (
+                      <option value="">No users available</option>
                     )}
 
-                    {reassignUsers.map(
-                      (user) => (
-                        <option
-                          key={user.id}
-                          value={user.id}
-                        >
-                          {user.displayName}
-                          {' · '}
-                          {
-                            user.employeeCode
-                          }
-                        </option>
-                      )
-                    )}
+                    {reassignUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.displayName} · {user.employeeCode}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 <label className="field">
-                  <span>
-                    Comment
-                  </span>
+                  <span>Comment</span>
 
                   <textarea
                     className="input textarea"
                     rows={3}
                     value={comment}
                     onChange={(event) =>
-                      setComment(
-                        event.target.value
-                      )
+                      setComment(event.target.value)
                     }
                   />
                 </label>
@@ -880,11 +716,7 @@ setFieldValues({})
                 <div className="modal-actions">
                   <button
                     className="btn btn-secondary"
-                    onClick={() =>
-                      setReassigning(
-                        false
-                      )
-                    }
+                    onClick={() => setReassigning(false)}
                   >
                     ← Back
                   </button>
@@ -892,14 +724,9 @@ setFieldValues({})
                   <button
                     className="btn btn-primary"
                     onClick={reassign}
-                    disabled={
-                      saving ||
-                      !reassignUserId
-                    }
+                    disabled={saving || !reassignUserId}
                   >
-                    {saving
-                      ? 'Reassigning…'
-                      : 'Reassign task'}
+                    {saving ? 'Reassigning…' : 'Reassign task'}
                   </button>
                 </div>
               </>
